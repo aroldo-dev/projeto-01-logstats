@@ -1,0 +1,3 @@
+warning: line 8: too_few_tokens
+warning: line 11: bad_level
+warning: line 15: bad_duration

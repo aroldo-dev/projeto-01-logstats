@@ -1,0 +1,8 @@
+# Copie este arquivo para a raiz do repositório do `logstats`.
+#
+# Sem isto, o git no Windows normaliza os finais de linha ao fazer checkout e
+# `crlf.log` perde os `\r\n` — o teste I10 passa por acidente e você não testou
+# nada. `-text` desliga qualquer conversão.
+
+*.log      -text
+expected/* -text

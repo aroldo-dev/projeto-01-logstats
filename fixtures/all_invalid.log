@@ -1,0 +1,5 @@
+abc def
+2026-03-14T25:00:00Z INFO  db    query=select_users
+2026-03-14T10:22:44Z FATAL db    query=drop_all
+2026-03-14T10:22:45Z INFO  Db    query=select_pets
+2026-03-14T10:22:46Z ERROR db    duration_ms=abc

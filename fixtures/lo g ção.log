@@ -1,0 +1,2 @@
+2026-03-14T10:22:31Z INFO  auth  user=alice action=login duration_ms=42
+2026-03-14T10:22:33Z ERROR db    query=select_users duration_ms=1503

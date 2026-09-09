@@ -1,0 +1,5 @@
+2026-03-14T10:22:31Z INFO  auth  user=alice action=login duration_ms=42
+2026-03-14T10:22:33Z ERROR db    query=select_users duration_ms=1503 error="connection timeout"
+
+2026-03-14T10:22:36Z INFO  http  path=/api/v1/pets status=200 duration_ms=12
+2026-03-14T10:22:39Z ERROR db    query=insert_pet duration_ms=980

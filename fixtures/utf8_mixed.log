@@ -1,0 +1,4 @@
+2026-03-14T10:22:31Z INFO  auth  user=joao msg="login efetuado com sucesso"
+2026-03-14T10:22:32Z INFO  db    query=seleÿşct error="bytes quebrados"
+2026-03-14T10:22:33Z WARN  http  path=/api/v1/pets msg="lentidao ğŸŒ" duration_ms=1200
+2026-03-14T10:22:34Z ERROR cache key=coracao msg="falha na conexao" duration_ms=15

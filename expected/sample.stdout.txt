@@ -1,0 +1,24 @@
+file: tests/fixtures/sample.log
+lines_total: 20
+lines_valid: 16
+lines_invalid: 3
+lines_blank: 1
+
+by_level:
+  TRACE  1
+  DEBUG  1
+  INFO   7
+  WARN   3
+  ERROR  4
+
+top_modules_by_error (3):
+  db    2
+  auth  1
+  http  1
+
+duration_ms (samples: 12):
+  mean  305.2
+  p50      38
+  p90     980
+  p95    1503
+  max    1503
