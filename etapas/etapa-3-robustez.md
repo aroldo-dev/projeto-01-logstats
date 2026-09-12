@@ -1,124 +1,101 @@
-# Etapa 3 — Robustez de entrada, stderr e exit codes
+# Entrega 3 — Entradas problemáticas, avisos e códigos de saída
 
-**Estimativa:** 2–3h · **Entregável:** o binário para de mentir quando a entrada é feia · **Referência:** SPEC §4.2 (R7–R9), §6.3, §6.4
-
----
-
-## Objetivo
-
-Até aqui você só rodou contra um arquivo bem-comportado. Esta etapa é sobre tudo
-que dá errado: arquivo vazio, só lixo, CRLF do Windows, última linha sem `\n`,
-bytes que não são UTF-8, arquivo que não existe, caminho que é um diretório.
-
-Entra também o canal stderr (os `warning:`) e os exit codes 0/2/3.
-
-Ainda sem flags. Exit 1 (erro de uso) só na Etapa 4.
+**Estimativa de referência:** 2–3h · **Seções da SPEC:** §3.2 (R7–R9), §5.3, §5.4
 
 ---
 
-## O que você vai encostar
+## Por que esta entrega
 
-| Tópico | Onde |
-|---|---|
-| Error handling de verdade: enum + `Display` + `std::error::Error` + `From` | `error.rs` |
-| `?` atravessando tipos de erro diferentes | `io::Error` → `LogStatsError` |
-| `std::process::exit` e separação stdout/stderr | `main.rs` |
-| Bytes vs texto: `read_until` / `from_utf8` | leitura tolerante a UTF-8 inválido |
-| `stdin()` como `impl BufRead` | entrada `-` |
+Até aqui a ferramenta só viu um arquivo bem-comportado. Na vida real o arquivo
+chega vazio, cheio de lixo, gerado no Windows, cortado no meio, com bytes
+corrompidos — ou nem existe. E a pipeline de CI precisa distinguir esses casos
+pelo código de saída, sem ler texto.
 
----
+## Histórias
 
-## Escopo de código
+> **Como** engenheiro de plantão, **quero** que arquivos gerados no Windows, sem
+> quebra de linha no final ou com trechos corrompidos sejam processados até o
+> fim, **para** não perder o relatório por causa de uma linha ruim.
 
-Entra `src/error.rs` com `LogStatsError` e `impl From<io::Error>`. `main.rs`
-passa a mapear erro → exit code. `stats.rs` passa a coletar as linhas inválidas
-`(número, motivo)`.
+> **Como** engenheiro de plantão, **quero** ver no stderr quais linhas foram
+> rejeitadas e por quê, **para** investigar o log sem poluir o relatório.
 
-### A mudança estrutural desta etapa
+> **Como** pipeline de CI, **quero** códigos de saída diferentes para sucesso,
+> erro de leitura e "nenhuma linha válida", **para** decidir o próximo passo sem
+> interpretar texto.
 
-`BufRead::lines()` te dá `Result<String, io::Error>` e **falha a leitura inteira**
-no primeiro byte não-UTF-8. A regra R8 diz que a linha vira inválida e o
-**processamento continua**. Ou seja: `lines()` não serve mais.
-
-Troque por `read_until(b'\n', &mut buf)` + `String::from_utf8_lossy` /
-`str::from_utf8`, e trate o `Err` como `ParseError::InvalidUtf8` daquela linha.
-Aproveite e remova o `\r` final ali (R7) e trate o caso da última linha sem `\n` (R9).
+> **Como** engenheiro de plantão, **quero** passar o log via pipe usando `-`,
+> **para** encadear o `logstats` com outras ferramentas.
 
 ---
 
-## Regras que entram
+## Escopo
 
-**R7** (`\n` e `\r\n`), **R8** (UTF-8 inválido → linha inválida, processamento
-continua), **R9** (última linha sem `\n` processada normalmente).
+- Regras **R7** (LF e CRLF), **R8** (UTF-8 inválido) e **R9** (última linha sem terminador).
+- Avisos no stderr (SPEC §5.3), com limite fixo de 5 — a opção
+  `--max-invalid-report` chega na Entrega 4.
+- Códigos de saída **0, 2 e 3** (SPEC §5.4). O código 1 chega na Entrega 4.
+- `-` como nome de arquivo lê do stdin.
 
-### stderr (SPEC §6.3)
+## Fora do escopo
 
-Uma linha por linha inválida, até 5 (o default de `--max-invalid-report`, que
-ainda é fixo nesta etapa):
+Opções de linha de comando e JSON.
 
-```
-warning: line 8: bad_timestamp
-```
+## Regras de negócio em destaque
 
-Motivos com **exatamente** estes identificadores: `too_few_tokens`,
-`bad_timestamp`, `bad_level`, `bad_module`, `field_without_eq`, `bad_key`,
-`unterminated_quote`, `bad_duration`, `invalid_utf8`.
-
-Se passou do limite, uma linha final: `warning: 12 more invalid lines suppressed`.
-
-### Exit codes (SPEC §6.4)
-
-| Código | Quando |
-|---|---|
-| 0 | sucesso, inclusive arquivo vazio |
-| 2 | erro de I/O: arquivo inexistente, sem permissão, é um diretório |
-| 3 | `lines_valid == 0` **e** `lines_total > 0` — e o relatório **ainda é impresso** no stdout |
-
-Erro de I/O vai para stderr e **stdout fica vazio**. Esse "stdout vazio" é
-assertado no E03; é fácil vazar um `println!` antes do erro.
+- Linha com bytes corrompidos é **uma** linha inválida. As linhas seguintes
+  continuam sendo processadas normalmente.
+- No erro de leitura (código 2), **nada** pode sair no stdout.
+- No código 3, o relatório **sai** no stdout mesmo assim.
 
 ---
 
-## Testes desta etapa
+## Critérios de aceite
 
-| Grupo | IDs da SPEC §9 | Tipo | Fixture |
+| Comando | stdout | stderr | Código |
 |---|---|---|---|
-| Robustez de linha | **U17, U18, U19** (revisitados) | unitário | — |
-| Entradas degeneradas | **I07, I08, I09, I10, I11** | integração | `all_invalid`, `empty`, `no_trailing_newline`, `crlf`, `utf8_mixed` |
-| Erros de I/O | **E03, E04** | e2e | — |
-| stdin | **E08** | e2e | `sample.log` via pipe |
-| Exit 3 e vazio | **E09, E10** | e2e | `all_invalid.log`, `empty.log` |
-| stderr do caso canônico | **E01** (completar a parte de stderr) | e2e | `sample.log` |
+| `logstats tests/fixtures/sample.log` | = `expected/sample.stdout.txt` | = `expected/sample.stderr.txt` | 0 |
+| `logstats nao_existe.log` | **vazio** | mensagem de erro | 2 |
+| `logstats tests/fixtures` (um diretório) | **vazio** | mensagem de erro | 2 |
+| `logstats tests/fixtures/all_invalid.log` | relatório, com `lines_valid: 0` | 5 avisos (SPEC §5.3) | **3** |
+| `logstats tests/fixtures/empty.log` | relatório zerado, com `  (none)` e `  (no samples)` | vazio | 0 |
+| `logstats tests/fixtures/crlf.log` | total 5, válidas 4, inválidas 0, em branco 1 | vazio | 0 |
+| `logstats tests/fixtures/utf8_mixed.log` | total 4, válidas 3, inválidas 1, em branco 0 | `warning: line 2: invalid_utf8` | 0 |
+| `logstats tests/fixtures/no_trailing_newline.log` | total 3, válidas 3 | vazio | 0 |
+| conteúdo de `sample.log` via pipe para `logstats -` | igual ao da 1ª linha, com `file: -` | = `expected/sample.stderr.txt` | 0 |
 
-**I11 é o teste que importa mais nesta etapa:** ele não checa só que a linha 2 de
-`utf8_mixed.log` foi contada como inválida — checa que as linhas 3 e 4 **continuaram
-sendo processadas**. Se você abortar a leitura no byte ruim, ele pega.
+## Casos de teste (SPEC §7)
 
-**Cuidado com o I10:** se o `crlf.log` chegou até você com os `\r\n` normalizados
-para `\n` pelo git, o teste passa sem testar nada. Copie o `.gitattributes` desta
-pasta para a raiz do repositório antes de commitar as fixtures, e confira:
+| Grupo | IDs | Nível | Massa de teste |
+|---|---|---|---|
+| Validação revisitada | **U17, U18, U19** | unitário | — |
+| Entradas degeneradas | **I07, I08, I09, I10, I11** | integração | conteúdos de `all_invalid`, `empty`, `no_trailing_newline`, `crlf`, `utf8_mixed` |
+| Erros de leitura | **E03, E04** | ponta a ponta | — |
+| stdin | **E08** | ponta a ponta | `sample.log` via pipe |
+| Código 3 e arquivo vazio | **E09, E10** | ponta a ponta | `all_invalid.log`, `empty.log` |
+| Caso canônico completo | **E01** — agora com stderr | ponta a ponta | `sample.log` |
 
-```bash
-python -c "print(open('tests/fixtures/crlf.log','rb').read()[:80])"
-```
+O caso que o QA mais valoriza nesta entrega é o **I11**: não basta a linha 2 de
+`utf8_mixed.log` ser inválida. As linhas 3 e 4 precisam **continuar sendo processadas**.
 
-Tem que aparecer `\r\n`.
+## Integridade da massa de teste
+
+`crlf.log` precisa manter os terminadores CRLF. Se o controle de versão converter
+os finais de linha, o I10 passa sem testar nada. Confira o arquivo depois de
+clonar, antes de confiar no resultado do I10.
 
 ---
 
 ## Definition of Done
 
-- [ ] I07–I11 verdes
-- [ ] E01 (agora com stderr), E03, E04, E08, E09, E10 verdes
-- [ ] `logstats arquivo_que_nao_existe.log` → exit 2, stderr com mensagem, **stdout vazio**
-- [ ] `logstats tests/fixtures/all_invalid.log` → exit 3 **e o relatório sai no stdout mesmo assim**
-- [ ] `logstats tests/fixtures/empty.log` → exit 0, tudo zerado, `  (none)` e `  (no samples)`
-- [ ] `cat tests/fixtures/sample.log | logstats -` → mesmo relatório do E01, com `file: -`
-- [ ] Nenhum `read_to_string`; nenhum `unwrap()` em `src/`
-- [ ] `cargo fmt --check` e `cargo clippy --all-targets -- -D warnings` limpos
+- [ ] Critérios de aceite atendidos, nos três canais
+- [ ] Casos desta entrega automatizados e verdes
+- [ ] Casos das Entregas 1 e 2 continuam verdes
+- [ ] Q01 e Q02 atendidos
 
-## Para a revisão, me manda
+## Pacote de entrega para o QA
 
-1. `src/error.rs` e o trecho de leitura de linhas de `stats.rs`
-2. `tests/lib_api.rs`
-3. Os 3 canais (stdout, stderr, exit code) de `all_invalid.log` e de `empty.log`
+1. Saída completa da suíte de testes
+2. Saída da verificação de formatação e do linter
+3. stdout, stderr e código de saída de cada linha da tabela de critérios de aceite
+4. Limitações conhecidas, se houver

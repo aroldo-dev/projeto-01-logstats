@@ -1,94 +1,92 @@
-# Projeto 01 — `logstats`
+# `logstats` — Especificação de Produto e Plano de Testes
 
-**Nível:** Básico (primeiro projeto)
-**Estimativa:** 13–18h, divididas em 5 etapas (ver §0)
-**Papel:** você é o dev. Eu sou produto + QA. A spec abaixo é contrato — a suíte de testes valida ela, não a sua implementação.
+**Autores:** Produto + QA · **Destinatário:** time de desenvolvimento (você)
+**Nível:** básico (primeiro projeto) · **Estimativa de referência:** 13–18h, em 5 entregas
+
+Este documento diz **o que** o `logstats` precisa fazer e **como o QA vai verificar**
+que ele faz. Ele não diz **como** construir: arquitetura, organização do código,
+nomes, tipos e técnicas são decisões do time de desenvolvimento.
+
+A suíte de testes valida este contrato — não uma implementação específica.
 
 ---
 
 ## 0. Como este documento é usado
 
-Este arquivo é o **contrato final** do projeto: o que o `logstats` tem que fazer
-quando estiver pronto. Ele não é a ordem de implementação.
+Este é o **contrato final** da v1. A ordem de construção está em `etapas/`, em 5
+entregas incrementais. Cada entrega tem histórias, critérios de aceite, o recorte
+do plano de testes (§7) e a sua própria *Definition of Done*.
 
-A execução é por etapas, em `etapas/`. Cada etapa recorta um pedaço desta spec,
-entrega um binário que roda de ponta a ponta, e tem o seu próprio subconjunto do
-plano de testes da §9 e a sua própria *Definition of Done*:
-
-| # | Etapa | Recorta desta spec | Testes |
+| # | Entrega | Seções desta spec | Casos de teste |
 |---|---|---|---|
-| 1 | [Parser de linha + eco](etapas/etapa-1-parser.md) | §4, §7.1 | U01–U23, D01–D02 |
-| 2 | [Agregação e relatório texto](etapas/etapa-2-agregacao.md) | §6.1, §7.2 | U24–U34, U49–U51, I01, I12–I13, D03, E01 |
-| 3 | [Robustez, stderr e exit codes](etapas/etapa-3-robustez.md) | §4.2 (R7–R9), §6.3, §6.4 | U17–U19, I07–I11, E01, E03–E04, E08–E10 |
-| 4 | [CLI completa e filtros](etapas/etapa-4-cli.md) | §5 | U35–U48, I02–I06, E05–E07, E11–E13 |
-| 5 | [JSON, performance e gates](etapas/etapa-5-json-e-gates.md) | §6.2, §7.3, §9.6 | U52–U54, E02, E14, D04, Q01–Q06, P01–P04 |
+| 1 | [Classificação de linhas](etapas/etapa-1-classificacao.md) | §3, §6.1 | U01–U23, U55 |
+| 2 | [Relatório em texto](etapas/etapa-2-relatorio.md) | §5.1, §6.2 | U24–U34, U49–U51, I01, I12–I13, E01 |
+| 3 | [Entradas problemáticas, avisos e códigos de saída](etapas/etapa-3-robustez.md) | §3.2 (R7–R9), §5.3, §5.4 | U17–U19, I07–I11, E01, E03–E04, E08–E10 |
+| 4 | [Opções de linha de comando e filtros](etapas/etapa-4-opcoes-e-filtros.md) | §4 | U35–U48, I02–I06, E05–E07, E11–E13, E15 |
+| 5 | [Saída JSON, requisitos não funcionais e aceite final](etapas/etapa-5-json-e-aceite-final.md) | §2, §5.2, §6.3, §7.5, §9 | U52–U54, E02, E14, P01–P04, Q01–Q05 |
 
-**Leia esta spec inteira uma vez antes de começar** — você precisa saber para onde
-está indo para não desenhar tipos que travam a Etapa 3. Depois volte e trabalhe
-etapa por etapa: implemente, feche a DoD, mande para revisão, só então avance.
-
-A §11 (Definition of Done) e a §13 (como vamos revisar) valem para o projeto
-inteiro, ao fim da Etapa 5.
+Leia esta spec inteira uma vez antes de começar: saber onde o produto chega evita
+decisões na Entrega 1 que custam caro na Entrega 3. Depois, uma entrega por vez.
 
 ---
 
-## 1. Contexto de produto
+## 1. Contexto do produto
 
-Times de plataforma precisam responder rápido: "o que quebrou nas últimas horas e onde está lento?". Ferramentas completas (Datadog, Loki) são caras e exigem ingestão. Queremos um binário único, sem dependências, que leia um arquivo de log estruturado e cuspa um relatório determinístico — usável em terminal e em pipeline de CI.
+### Problema
 
-**Não-objetivo:** parsear formatos arbitrários, indexar, servir HTTP, tail em tempo real.
+Times de plataforma precisam responder rápido: **"o que quebrou nas últimas horas
+e onde está lento?"**. Ferramentas completas (Datadog, Loki) são caras, exigem
+ingestão e não estão disponíveis em todo ambiente.
 
----
+### Proposta
 
-## 2. Por que este projeto para começar
+Um executável único que lê um arquivo de log estruturado e emite um relatório
+**determinístico**: contagens por nível, ranking de módulos com mais erros e
+estatísticas de latência.
 
-Ele força quase todo o bloco "básico" do roadmap de Rust sem cair em exercício de brinquedo:
+### Quem usa
 
-| Tópico do roadmap | Onde aparece aqui |
-|---|---|
-| Cargo, crates, módulos | crate lib + bin, 7 módulos |
-| Ownership / borrowing | parser devolve `&str` emprestado da linha |
-| Lifetimes | assinatura do parser (`'a`) |
-| `String` vs `&str`, slices | você vai errar aqui pelo menos uma vez |
-| Structs e enums | `LogEntry`, `Level`, `ParseError` |
-| Pattern matching | `match` no parser e no render |
-| `Option` / `Result` / `?` | fluxo inteiro |
-| Error handling | enum de erro + `Display` + `std::error::Error` + `From` |
-| Traits | `FromStr`, `Display`, `Ord` |
-| Coleções | `Vec`, `HashMap`, `BTreeMap` |
-| Iteradores e closures | agregação com `filter`/`fold`/`collect` |
-| Genéricos (leve) | `fn analyze(r: impl BufRead)` |
-| Testes | unit, integração, doc, e2e |
+| Persona | Como usa | O que importa para ela |
+|---|---|---|
+| **Engenheiro de plantão** | Roda no terminal durante um incidente | Resposta rápida, leitura fácil, funciona em qualquer máquina (inclusive Windows) |
+| **Pipeline de CI** | Roda sobre os logs de um teste de carga | Saída estável para comparar, JSON para consumir, códigos de saída que distinguem "deu certo" de "entrada inútil" |
 
-**Fora de escopo nesta v1:** async, threads, `unsafe`, macros declarativas, smart pointers (`Rc`/`RefCell`), trait objects. Vem no Projeto 02+.
+### Não-objetivos da v1
+
+Aceitar formatos de log arbitrários, indexar, servir HTTP, acompanhar arquivo em
+tempo real.
 
 ---
 
-## 3. Restrições técnicas (obrigatórias)
+## 2. Requisitos não funcionais
 
-1. **Zero dependências em runtime.** `Cargo.toml` sem seção `[dependencies]`. Nada de `clap`, `serde`, `chrono`, `regex`, `anyhow`. `[dev-dependencies]` só nas extensões opcionais.
-2. **Crate duplo:** `src/lib.rs` (toda a lógica, pública e testável) + `src/main.rs` (args, I/O, exit codes). O binário é uma casca fina.
-3. **Streaming obrigatório.** Nada de `read_to_string`. Consumo de memória tem que ser O(módulos + amostras de duração), não O(tamanho do arquivo).
-4. `#![forbid(unsafe_code)]` no topo de `lib.rs`.
-5. `cargo clippy --all-targets -- -D warnings` limpo. `cargo fmt --check` limpo.
-6. **Nenhum `panic!`/`unwrap()`/`expect()` em caminho alcançável por input do usuário.** `unwrap()` em testes é permitido.
-7. Edition 2021 ou 2024, Rust estável.
+| # | Requisito | Como o QA verifica |
+|---|---|---|
+| RNF1 | **Distribuição:** um único executável, **sem dependências de terceiros** (política de segurança da cadeia de suprimentos). Ferramentas usadas apenas nos testes são permitidas. Plataforma padrão: Rust estável. | Inspeção do manifesto do projeto |
+| RNF2 | **Memória limitada:** o consumo pode crescer com o número de módulos distintos e de amostras de duração (necessárias para percentis exatos), mas **não com o volume de texto lido**. Precisa processar arquivos maiores que a RAM e entrada contínua via pipe. | E14 |
+| RNF3 | **Desempenho:** 200.000 linhas processadas em menos de 3 s numa máquina de desenvolvimento comum. | E14 |
+| RNF4 | **Robustez:** nenhuma entrada — conteúdo do arquivo, stdin ou argumentos — pode fazer a ferramenta encerrar de forma abrupta. Toda execução termina com um dos códigos de §5.4; **qualquer outro código de saída é defeito**. | P01, §8, toda a suíte E2E |
+| RNF5 | **Determinismo:** mesma entrada + mesmos argumentos → saída idêntica byte a byte, em qualquer execução. | U54, E01 repetido |
+| RNF6 | **Windows é plataforma de primeira classe:** terminadores CRLF e caminhos com espaço e acento funcionam como em Linux/macOS. | I10, E13 |
+| RNF7 | **Padrão de engenharia:** formatação padrão da linguagem, linter oficial sem avisos, cobertura mínima nas regras de negócio. | Q01–Q05 |
 
 ---
 
-## 4. Formato de entrada
+## 3. Formato de entrada
 
-### 4.1 Gramática
+### 3.1 Gramática
 
 ```
 linha      := timestamp SP+ level SP+ module ( SP+ campo )*
-timestamp  := YYYY-MM-DDTHH:MM:SSZ        (exatamente 20 chars, UTC)
-level      := TRACE | DEBUG | INFO | WARN | ERROR    (case-sensitive)
+timestamp  := YYYY-MM-DDTHH:MM:SSZ        (exatamente 20 caracteres, UTC)
+level      := TRACE | DEBUG | INFO | WARN | ERROR    (maiúsculas, exatamente assim)
 module     := [a-z0-9_]{1,32}
 campo      := chave "=" valor
 chave      := [a-z0-9_]+
-valor      := token_sem_espaco | '"' ( qualquer char exceto '"' )* '"'
+valor      := token_sem_espaco | '"' ( qualquer caractere exceto '"' )* '"'
 ```
+
+`SP+` = um ou mais espaços.
 
 Exemplo:
 
@@ -96,106 +94,146 @@ Exemplo:
 2026-03-14T10:22:33Z ERROR db    query=select_users duration_ms=1503 error="connection timeout"
 ```
 
-### 4.2 Regras semânticas
+### 3.2 Regras de negócio
 
 | # | Regra |
 |---|---|
-| R1 | Linha vazia ou só whitespace → **em branco**: não conta como válida nem inválida, tem contador próprio. |
-| R2 | Qualquer linha que não case com a gramática → **inválida**: incrementa contador, registra `(número_da_linha, motivo)`, e o processamento **continua**. |
+| R1 | Linha vazia ou só com espaços → **em branco**: não é válida nem inválida, tem contador próprio. |
+| R2 | Linha que não segue a gramática → **inválida**: é contada, registrada como (número da linha, motivo), e o processamento **continua**. |
 | R3 | Chave repetida na mesma linha → o **último** valor vence. |
-| R4 | O campo `duration_ms`, se presente, tem que parsear como `u64`. Se não parsear (vazio, `abc`, negativo, overflow) → linha inválida. |
-| R5 | Timestamp é validado **sintaticamente e semanticamente**: mês 1–12, dia 1–31 (não precisa validar mês×dia nem ano bissexto), hora 0–23, min/seg 0–59. |
-| R6 | Comparação temporal é **lexicográfica** sobre a string do timestamp (o formato permite isso — aproveite, não implemente calendário). |
-| R7 | Terminadores `\n` e `\r\n` ambos suportados. Windows é ambiente de primeira classe aqui. |
-| R8 | Bytes que não formam UTF-8 válido → a linha conta como inválida (motivo `InvalidUtf8`) e o processamento continua. |
-| R9 | Última linha sem `\n` final é processada normalmente. |
-| R10 | Valores podem conter UTF-8 multibyte (acentos, emoji) sem quebrar nada. |
+| R4 | O campo `duration_ms`, se presente, precisa ser um inteiro não negativo que caiba em 64 bits. Vazio, texto, negativo ou grande demais → linha inválida (`bad_duration`). |
+| R5 | O timestamp é validado na forma **e** nos valores: mês 1–12, dia 1–31 (não é preciso cruzar mês×dia nem tratar ano bissexto), hora 0–23, minuto e segundo 0–59. |
+| R6 | Ordem temporal = ordem alfabética do texto do timestamp. O formato foi escolhido para isso; não há cálculo de calendário no produto. |
+| R7 | Linhas terminadas em `LF` e em `CRLF` são igualmente suportadas. |
+| R8 | Linha com bytes que não formam UTF-8 válido → inválida (`invalid_utf8`), e o processamento **continua** nas linhas seguintes. |
+| R9 | A última linha sem terminador é processada normalmente. |
+| R10 | Valores podem conter caracteres acentuados e emoji sem afetar nada. |
+
+Motivos de rejeição — identificadores oficiais, usados na saída (§5.3) e nos testes:
+
+| Identificador | Quando |
+|---|---|
+| `too_few_tokens` | menos de 3 elementos (timestamp, nível, módulo) |
+| `bad_timestamp` | timestamp fora do formato ou com valores fora da faixa (R5) |
+| `bad_level` | nível fora da lista |
+| `bad_module` | módulo fora de `[a-z0-9_]{1,32}` |
+| `field_without_eq` | campo sem `=` |
+| `bad_key` | chave vazia ou com caractere fora de `[a-z0-9_]` |
+| `unterminated_quote` | valor entre aspas sem aspa de fechamento |
+| `bad_duration` | `duration_ms` inválido (R4) |
+| `invalid_utf8` | bytes não UTF-8 (R8) |
+
+Se uma linha tem mais de um problema, vale o **primeiro** encontrado lendo da
+esquerda para a direita (timestamp → nível → módulo → campos).
 
 ---
 
-## 5. Interface de linha de comando
+## 4. Interface de linha de comando
 
 ```
 logstats [OPÇÕES] <ARQUIVO>
 logstats [OPÇÕES] -            # lê de stdin
 ```
 
-| Opção | Default | Comportamento |
+| Opção | Padrão | Comportamento |
 |---|---|---|
-| `--level <LEVEL>` | `TRACE` | Considera só linhas com nível **>=** LEVEL. Ordem: TRACE < DEBUG < INFO < WARN < ERROR. |
-| `--module <NAME>` | (todos) | Repetível. Se informado ≥1 vez, só esses módulos entram. |
-| `--since <TS>` | (sem limite) | Timestamp RFC3339. **Inclusivo.** |
-| `--until <TS>` | (sem limite) | Timestamp RFC3339. **Exclusivo.** |
+| `--level <LEVEL>` | `TRACE` | Considera só linhas com nível **maior ou igual** a LEVEL. Ordem: TRACE < DEBUG < INFO < WARN < ERROR. |
+| `--module <NOME>` | (todos) | Repetível. Se informado ao menos uma vez, só esses módulos entram (união). |
+| `--since <TS>` | (sem limite) | Timestamp no formato de §3.1. **Inclusivo.** |
+| `--until <TS>` | (sem limite) | Timestamp no formato de §3.1. **Exclusivo.** |
 | `--top <N>` | `5` | Quantos módulos listar no ranking de erros. `0` é válido → lista vazia. |
-| `--format <text\|json>` | `text` | Formato de saída. |
+| `--format <text\|json>` | `text` | Formato do relatório. |
 | `--max-invalid-report <N>` | `5` | Quantas linhas inválidas detalhar no stderr. |
-| `-h`, `--help` | — | Uso no stdout, exit 0. |
-| `-V`, `--version` | — | `logstats <versão do Cargo.toml>`, exit 0. |
+| `-h`, `--help` | — | Texto de uso no stdout (contém `Usage`), código 0. |
+| `-V`, `--version` | — | `logstats <versão do pacote>` no stdout (ex.: `logstats 0.1.0`), código 0. |
 
-**Regras do parser de argumentos (feito à mão, sem clap):**
+Regras de interpretação dos argumentos:
 
-- `--opt valor` e `--opt=valor` são equivalentes.
-- `--` encerra as opções; tudo depois é posicional.
+- `--opcao valor` e `--opcao=valor` são equivalentes.
+- `--` encerra as opções; tudo depois é tratado como nome de arquivo.
 - Opção desconhecida → erro de uso.
-- Opção que exige valor sem valor → erro de uso.
-- Zero ou ≥2 posicionais → erro de uso.
-- `--since` > `--until` → erro de uso.
-- Filtros são aplicados **antes** da agregação. Linhas filtradas não entram em `lines_valid`.
+- Opção que exige valor e não recebeu → erro de uso.
+- Valor inválido para a opção (`--top abc`, `--format xml`, `--since ontem`) → erro de uso.
+- Nenhum arquivo, ou mais de um → erro de uso.
+- `--since` posterior a `--until` → erro de uso.
+
+Filtros:
+
+- São aplicados **antes** da agregação: linha válida filtrada não entra em
+  `lines_valid`, no ranking nem nas durações.
+- `lines_total` conta todas as linhas lidas. Linhas inválidas e em branco são
+  contadas e reportadas independentemente dos filtros.
 
 ---
 
-## 6. Saída
+## 5. Saída
 
-### 6.1 Formato `text` (exato — os testes comparam byte a byte)
+### 5.1 Relatório em texto (padrão)
 
-Blocos separados por **uma** linha em branco. Sempre termina com `\n`.
+O QA compara **byte a byte**. Estrutura:
 
-Regras de alinhamento em cada bloco: `"  " + nome.ljust(W) + "  " + valor.rjust(V)`, onde `W` = maior nome **daquele bloco** e `V` = maior valor **daquele bloco**.
+- Blocos separados por **exatamente uma** linha em branco; a saída termina com quebra de linha.
+- `file:` mostra o caminho **exatamente como foi informado** (ou `-` para stdin).
+- Linhas de item: 2 espaços, o nome alinhado à esquerda e completado com espaços
+  até a largura do maior nome **do bloco**, 2 espaços, e o valor alinhado à
+  direita até a largura do maior valor **do bloco**.
+- `by_level` lista sempre os 5 níveis, de TRACE a ERROR, mesmo com zero.
+- `top_modules_by_error (N)` lista só módulos com ao menos 1 ERROR, ordenados por
+  quantidade de erros (maior primeiro) e, no empate, por nome (A→Z). `N` é a
+  quantidade listada. Lista vazia → a linha `  (none)`.
+- `duration_ms (samples: N)` considera as linhas que têm `duration_ms`:
+  - `mean` com 1 casa decimal, arredondando metades para longe do zero (`1.25 → 1.3`, `1.35 → 1.4`).
+  - `p50`, `p90`, `p95` pelo método **nearest-rank**, sem interpolação: com os
+    valores ordenados e numerados a partir de 1, o percentil *p* é o valor na
+    posição `ceil(p/100 × n)`, limitada entre 1 e n.
+  - `max` é o maior valor.
+  - Sem amostras → o bloco tem apenas a linha `  (no samples)`.
 
-`by_level` sempre imprime os 5 níveis, na ordem TRACE→ERROR, mesmo zerados.
+Exemplo completo em §6.2.
 
-`top_modules_by_error` lista só módulos com ≥1 ERROR, ordenados por `(contagem desc, nome asc)`. Se vazio: `  (none)`.
+### 5.2 Relatório JSON (`--format json`)
 
-`mean` = 1 casa decimal, arredondamento half-away-from-zero.
-Percentis = **nearest-rank**: `i = clamp(ceil(p/100 × n), 1, n)` sobre o vetor ordenado, 1-indexado. Nada de interpolação.
-Se `samples == 0`: o bloco vira só `  (no samples)`.
+- Uma linha, compacta (sem espaços), terminada em quebra de linha.
+- **Ordem de chaves fixa**, exatamente como em §6.3. O QA compara texto, não
+  "JSON equivalente".
+- `mean` com 1 casa decimal, como no texto (ex.: `12.0`).
+- Sem amostras de duração: `"duration_ms":{"samples":0,"mean":null,"p50":null,"p90":null,"p95":null,"max":null}`.
+- Ranking vazio: `"top_modules_by_error":[]`.
+- No campo `file`, `"` e `\` são escapados, e caracteres de controle viram `\u00XX`.
 
-### 6.2 Formato `json`
+### 5.3 Avisos (stderr)
 
-Uma linha, compacta (sem espaços), **ordem de chaves fixa** conforme o exemplo em §7.3. `null` para as métricas quando `samples == 0`. Escapar `"`, `\` e chars de controle (`\u00XX`) no campo `file`.
-
-### 6.3 stderr
-
-Uma linha por linha inválida, até `--max-invalid-report`, no formato:
+Uma linha por linha inválida, na ordem do arquivo, até o limite de
+`--max-invalid-report`:
 
 ```
 warning: line 8: bad_timestamp
 ```
 
-Motivos válidos (use exatamente estes identificadores): `too_few_tokens`, `bad_timestamp`, `bad_level`, `bad_module`, `field_without_eq`, `bad_key`, `unterminated_quote`, `bad_duration`, `invalid_utf8`.
-
-Se houve mais inválidas do que o limite, uma linha final:
+Se houver mais inválidas que o limite, uma linha final com a quantidade omitida:
 
 ```
 warning: 12 more invalid lines suppressed
 ```
 
-### 6.4 Exit codes
+### 5.4 Códigos de saída
 
 | Código | Quando |
 |---|---|
-| 0 | Sucesso (inclui arquivo vazio, e inclui `--help`/`--version`) |
+| 0 | Sucesso — inclusive arquivo vazio, `--help` e `--version` |
 | 1 | Erro de uso (argumentos) |
-| 2 | Erro de I/O (arquivo inexistente, sem permissão, é um diretório) |
-| 3 | `lines_valid == 0` **e** `lines_total > 0`. O relatório ainda é impresso no stdout. |
+| 2 | Erro de leitura: arquivo inexistente, sem permissão, caminho é um diretório |
+| 3 | O arquivo tem linhas, mas **nenhuma é válida pela gramática** (§3): todas são inválidas ou em branco. O relatório **é impresso** no stdout mesmo assim. Filtros não influenciam: se há linhas válidas e os filtros excluem todas, o código é 0 e o relatório sai zerado. |
 
-Erros de uso e de I/O vão para **stderr**; stdout fica vazio.
+Nos códigos 1 e 2: mensagem explicativa no stderr e **stdout vazio**.
 
 ---
 
-## 7. Caso de aceitação canônico
+## 6. Caso de aceitação canônico
 
-### 7.1 `tests/fixtures/sample.log`
+A massa de teste está em `tests/fixtures/` e as saídas esperadas em `expected/`.
+
+### 6.1 Entrada: `tests/fixtures/sample.log`
 
 ```
 2026-03-14T10:22:31Z INFO  auth  user=alice action=login duration_ms=42
@@ -220,9 +258,12 @@ LINHA QUEBRADA
 2026-03-14T10:22:53Z INFO  auth  user=erin action=login duration_ms=38
 ```
 
-(3 inválidas: linha 8 `too_few_tokens`, linha 11 `bad_level`, linha 15 `bad_duration`. Linha 16 em branco.)
+Inválidas: linha 8 `too_few_tokens`, linha 11 `bad_level`, linha 15 `bad_duration`.
+Linha 16 em branco.
 
-### 7.2 `logstats tests/fixtures/sample.log` → stdout
+### 6.2 `logstats tests/fixtures/sample.log`
+
+stdout (= `expected/sample.stdout.txt`):
 
 ```
 file: tests/fixtures/sample.log
@@ -251,9 +292,10 @@ duration_ms (samples: 12):
   max    1503
 ```
 
-Durações ordenadas para conferência: `[3, 7, 12, 15, 25, 38, 42, 87, 310, 640, 980, 1503]` — soma 3662, média 305.1666… → `305.2`.
+Conferência: durações ordenadas `[3, 7, 12, 15, 25, 38, 42, 87, 310, 640, 980, 1503]`,
+soma 3662, n = 12, média 305,1666… → `305.2`.
 
-stderr:
+stderr (= `expected/sample.stderr.txt`):
 
 ```
 warning: line 8: too_few_tokens
@@ -261,255 +303,241 @@ warning: line 11: bad_level
 warning: line 15: bad_duration
 ```
 
-Exit 0.
+Código de saída: 0.
 
-### 7.3 `--format json` → stdout
+### 6.3 `logstats --format json tests/fixtures/sample.log`
+
+stdout (= `expected/sample.json.txt`):
 
 ```json
 {"file":"tests/fixtures/sample.log","lines_total":20,"lines_valid":16,"lines_invalid":3,"lines_blank":1,"by_level":{"TRACE":1,"DEBUG":1,"INFO":7,"WARN":3,"ERROR":4},"top_modules_by_error":[{"module":"db","errors":2},{"module":"auth","errors":1},{"module":"http","errors":1}],"duration_ms":{"samples":12,"mean":305.2,"p50":38,"p90":980,"p95":1503,"max":1503}}
 ```
 
----
-
-## 8. Estrutura sugerida
-
-```
-logstats/
-├── Cargo.toml
-├── src/
-│   ├── main.rs      # args → run() → exit code. Sem lógica de domínio.
-│   ├── lib.rs       # re-exports + #![forbid(unsafe_code)]
-│   ├── cli.rs       # Config, parse_args(), help/version
-│   ├── error.rs     # LogStatsError + From<io::Error>
-│   ├── entry.rs     # Level (Ord, FromStr, Display), LogEntry<'a>
-│   ├── parser.rs    # parse_line<'a>(&'a str) -> Result<Parsed<'a>, ParseError>
-│   ├── stats.rs     # Report, analyze(impl BufRead, &Config)
-│   └── render.rs    # render_text(&Report), render_json(&Report)
-└── tests/
-    ├── fixtures/
-    │   ├── sample.log
-    │   ├── empty.log
-    │   ├── all_invalid.log
-    │   ├── crlf.log
-    │   ├── no_trailing_newline.log
-    │   ├── utf8_mixed.log
-    │   └── lo g ção.log
-    ├── lib_api.rs
-    └── cli.rs
-```
+stderr e código de saída: iguais a §6.2.
 
 ---
 
-## 9. Plano de testes
+## 7. Plano de testes
 
-Notação: **U** = unitário, **I** = integração de biblioteca, **D** = doctest, **E** = end-to-end, **P** = propriedade, **Q** = qualidade.
+### Níveis de teste exigidos
 
-### 9.1 Unitários — `#[cfg(test)] mod tests` dentro de cada módulo
+| Sigla | Nível | O que cobre |
+|---|---|---|
+| **U** | Unitário | Uma regra isolada — uma regra de validação, um cálculo, uma regra de argumento — sem ler arquivo nem executar o programa. |
+| **I** | Integração | O fluxo completo (leitura → validação → filtros → agregação) exercitado **sem passar pela linha de comando**, com entradas em memória (sem arquivos em disco). |
+| **E** | Ponta a ponta (E2E) | O executável real, como o usuário roda. Todo caso verifica os **três canais: stdout, stderr e código de saída.** |
+| **P** | Propriedade | Invariantes verificadas com entradas geradas aleatoriamente. Opcional, recomendado. |
+| **Q** | Portões de qualidade | Critérios que bloqueiam a entrega. |
 
-Use tabelas (`for (input, expected) in [...]`) em vez de um `#[test]` por caso quando fizer sentido. **Asserte sobre a variante do enum de erro, nunca sobre a string da mensagem.**
+O QA cobra que cada caso **exista, seja automatizado, rode na suíte padrão do
+projeto e passe**. Onde e como cada teste é escrito é decisão sua.
 
-**`parser.rs`**
+Nos casos de validação, o critério é o **motivo da rejeição** (identificador de
+§3.2), nunca o texto de uma mensagem.
+
+### 7.1 Unitários
+
+**Validação de linha**
 
 | ID | Caso | Esperado |
 |---|---|---|
-| U01 | Linha mínima válida, sem campos | Ok, 0 campos |
-| U02 | Linha com 3 campos | Ok, 3 campos |
-| U03 | Valor entre aspas com espaços | Ok, valor sem as aspas |
-| U04 | Valor entre aspas contendo `=` | Ok |
-| U05 | Chave duplicada | Ok, último vence |
-| U06 | Múltiplos espaços entre tokens | Ok |
-| U07 | Timestamp inválido (sem `Z`, sem `T`, mês 13, hora 25, 19 chars, 21 chars) | `BadTimestamp` (6 casos) |
-| U08 | Level `FATAL` | `BadLevel` |
-| U09 | Level `info` (minúsculo) | `BadLevel` |
-| U10 | Module `Db`, `db-1`, `` (vazio), 33 chars | `BadModule` |
-| U11 | Campo sem `=` | `FieldWithoutEq` |
-| U12 | `duration_ms=abc` | `BadDuration` |
-| U13 | `duration_ms=` | `BadDuration` |
-| U14 | `duration_ms=-1` | `BadDuration` |
-| U15 | `duration_ms=99999999999999999999999` (overflow u64) | `BadDuration` |
-| U16 | Aspas não fechadas | `UnterminatedQuote` |
-| U17 | Só espaços / string vazia | `Blank` |
-| U18 | Linha terminando em `\r` | Ok (o `\r` é removido) |
-| U19 | Valores com acento e emoji | Ok, sem panic |
-| U20 | Menos de 3 tokens | `TooFewTokens` |
+| U01 | Linha mínima válida, sem campos | válida, 0 campos |
+| U02 | Linha com 3 campos | válida, 3 campos |
+| U03 | Valor entre aspas contendo espaços | válida, valor sem as aspas |
+| U04 | Valor entre aspas contendo `=` | válida |
+| U05 | Chave repetida na mesma linha | válida, último valor vence |
+| U06 | Vários espaços entre os elementos | válida |
+| U07 | Timestamp sem `Z`; sem `T`; mês 13; hora 25; com 19 caracteres; com 21 caracteres | `bad_timestamp` (6 casos) |
+| U08 | Nível `FATAL` | `bad_level` |
+| U09 | Nível `info` (minúsculo) | `bad_level` |
+| U10 | Módulo `Db`; `db-1`; vazio; com 33 caracteres | `bad_module` (4 casos) |
+| U11 | Campo sem `=` | `field_without_eq` |
+| U55 | Chave `Key`; `a-b`; chave vazia (`=valor`) | `bad_key` (3 casos) |
+| U12 | `duration_ms=abc` | `bad_duration` |
+| U13 | `duration_ms=` | `bad_duration` |
+| U14 | `duration_ms=-1` | `bad_duration` |
+| U15 | `duration_ms=99999999999999999999999` (não cabe em 64 bits) | `bad_duration` |
+| U16 | Aspas sem fechamento | `unterminated_quote` |
+| U17 | String vazia; só espaços | em branco |
+| U18 | Linha com terminador CRLF | válida, sem resíduo do CR em nenhum campo |
+| U19 | Valores com acento e emoji | válida, valores preservados |
+| U20 | Menos de 3 elementos | `too_few_tokens` |
 
-**`entry.rs`**
-
-| ID | Caso |
-|---|---|
-| U21 | `Level::from_str` para os 5 níveis + 1 inválido |
-| U22 | Round-trip `Level::from_str(&level.to_string()) == Ok(level)` para todos |
-| U23 | Ordenação: `TRACE < DEBUG < INFO < WARN < ERROR` |
-
-**`stats.rs`**
+**Níveis**
 
 | ID | Caso | Esperado |
 |---|---|---|
-| U24 | Entrada vazia | tudo 0, `samples == 0` |
-| U25 | Contagem por nível | bate |
-| U26 | `top_modules` com empate | desempate alfabético |
-| U27 | `top_modules` com `N` > nº de módulos | retorna todos |
-| U28 | `top_modules` com `N = 0` | vazio |
-| U29 | Percentil, `n=1` | p50 = p90 = p95 = único valor |
-| U30 | Percentil, `n=2`, `[10,20]` | p50=10, p90=20, p95=20 |
-| U31 | Percentil, valores `1..=100` | p50=50, p90=90, p95=95 |
-| U32 | Percentil com valores repetidos | correto |
-| U33 | `mean` de `[1,2]` → `1.5`; `[1,1,2]` → `1.3` | arredondamento |
-| U34 | `max` | correto |
-| U35 | Filtro `--level WARN` | descarta TRACE/DEBUG/INFO |
-| U36 | Filtro de módulo com 2 módulos | union, não interseção |
+| U21 | Os 5 níveis; mais `FATAL`, `Info`, `warning` | os 5 aceitos, os demais rejeitados |
+| U22 | Para cada nível: o nome exibido no relatório | idêntico ao aceito na entrada |
+| U23 | Ordem de severidade | TRACE < DEBUG < INFO < WARN < ERROR |
 
-**`cli.rs`**
+**Estatísticas**
 
 | ID | Caso | Esperado |
 |---|---|---|
-| U37 | `--top=3` e `--top 3` | mesmo Config |
-| U38 | Nenhuma flag | defaults de §5 |
+| U24 | Entrada vazia | todos os contadores 0, 0 amostras |
+| U25 | Contagem por nível | bate com a entrada |
+| U26 | Ranking com empate | desempate por nome A→Z |
+| U27 | `--top` maior que o nº de módulos com erro | lista todos |
+| U28 | `--top 0` | lista vazia |
+| U29 | Percentis com 1 amostra | p50 = p90 = p95 = o valor |
+| U30 | Percentis de `[10, 20]` | p50 = 10, p90 = 20, p95 = 20 |
+| U31 | Percentis de `1..=100` | p50 = 50, p90 = 90, p95 = 95 |
+| U32 | Percentis com valores repetidos | corretos pelo nearest-rank |
+| U33 | Média de `[1, 2]` e de `[1, 1, 2]` | `1.5` e `1.3` |
+| U34 | Máximo | correto |
+| U35 | Filtro de nível WARN | TRACE, DEBUG e INFO descartados |
+| U36 | Filtro com 2 módulos | união, não interseção |
+
+**Argumentos**
+
+| ID | Caso | Esperado |
+|---|---|---|
+| U37 | `--top=3` e `--top 3` | mesma configuração resultante |
+| U38 | Só o arquivo, nenhuma opção | padrões de §4 |
 | U39 | `--top abc` | erro de uso |
 | U40 | `--frobnicate` | erro de uso |
 | U41 | `--top` no fim, sem valor | erro de uso |
-| U42 | Dois posicionais | erro de uso |
-| U43 | Zero posicionais | erro de uso |
+| U42 | Dois arquivos | erro de uso |
+| U43 | Nenhum arquivo | erro de uso |
 | U44 | `-- --weird.log` | arquivo chamado `--weird.log` |
-| U45 | `--module a --module b` | acumula |
+| U45 | `--module a --module b` | ambos considerados |
 | U46 | `--since abc` | erro de uso |
-| U47 | `--since` > `--until` | erro de uso |
+| U47 | `--since` posterior a `--until` | erro de uso |
 | U48 | `--format xml` | erro de uso |
 
-**`render.rs`**
-
-| ID | Caso |
-|---|---|
-| U49 | Alinhamento com nome de módulo longo vs curto |
-| U50 | Bloco de duração com 0 amostras → `  (no samples)` |
-| U51 | Ranking vazio → `  (none)` |
-| U52 | JSON: escaping de `"` e `\` no `file` |
-| U53 | JSON: `null` quando `samples == 0` |
-| U54 | JSON: ordem das chaves estável em 100 execuções |
-
-### 9.2 Integração de biblioteca — `tests/lib_api.rs`
-
-Só a API pública, com `Cursor<&str>` / `&[u8]` como `impl BufRead`. Sem tocar em disco.
-
-| ID | Caso |
-|---|---|
-| I01 | `sample.log` inline → `Report` idêntico ao de §7.2 |
-| I02 | `--level WARN` → só WARN e ERROR |
-| I03 | Filtro por módulo `db` |
-| I04 | `--since` na borda exata (timestamp igual → **incluído**) |
-| I05 | `--until` na borda exata (timestamp igual → **excluído**) |
-| I06 | `--since` + `--until` + `--level` combinados |
-| I07 | Entrada só com linhas inválidas → `lines_valid == 0`, `lines_invalid == n` |
-| I08 | Entrada vazia (0 bytes) |
-| I09 | Sem `\n` na última linha |
-| I10 | CRLF em todas as linhas |
-| I11 | Bytes UTF-8 inválidos no meio → linha contada como inválida **e as linhas seguintes continuam sendo processadas** |
-| I12 | Timestamps fora de ordem cronológica → não afeta o resultado |
-| I13 | Módulo aparece em 2 níveis diferentes → contagens independentes |
-
-### 9.3 Doctests
-
-| ID | Item |
-|---|---|
-| D01 | `parse_line` com exemplo executável |
-| D02 | `Level` com exemplo de `from_str` |
-| D03 | `analyze` com exemplo usando `Cursor` |
-| D04 | `cargo test --doc` verde |
-
-### 9.4 E2E — `tests/cli.rs`
-
-Rodar o binário de verdade: `Command::new(env!("CARGO_BIN_EXE_logstats"))`. Assertar **stdout, stderr e exit code**, sempre os três.
+**Formatação da saída**
 
 | ID | Caso | Esperado |
 |---|---|---|
-| E01 | `sample.log` | stdout byte-a-byte igual a §7.2, stderr igual a §7.3, exit 0 |
-| E02 | `--format json` | stdout igual a §7.3, exit 0 |
-| E03 | Arquivo inexistente | exit 2, stderr não vazio, **stdout vazio** |
-| E04 | Caminho é um diretório | exit 2 |
-| E05 | `--frobnicate` | exit 1, stdout vazio |
-| E06 | `--help` | exit 0, stdout contém `Usage` |
-| E07 | `-V` | exit 0, stdout contém `env!("CARGO_PKG_VERSION")` |
-| E08 | `-` com o conteúdo do sample no stdin | mesmo relatório do E01, exceto `file: -` |
-| E09 | `all_invalid.log` | exit **3**, relatório ainda impresso no stdout |
-| E10 | `empty.log` | exit **0**, tudo zerado |
-| E11 | `--max-invalid-report 2` num arquivo com 5 inválidas | exatamente 2 `warning: line ...` + 1 linha de resumo |
-| E12 | `--max-invalid-report 0` | nenhum detalhe, só o resumo |
-| E13 | Caminho com espaço e acento (`tests/fixtures/lo g ção.log`) | funciona |
-| E14 | `#[ignore]` — 200k linhas geradas em `tmp` | completa em < 3s, RSS estável |
+| U49 | Módulos com nomes de tamanhos diferentes | alinhamento de §5.1 |
+| U50 | 0 amostras de duração | `  (no samples)` |
+| U51 | Ranking vazio | `  (none)` |
+| U52 | JSON com `"` e `\` no caminho | escapados |
+| U53 | JSON com 0 amostras | métricas `null` |
+| U54 | JSON gerado 100 vezes a partir do mesmo resultado | 100 saídas idênticas |
 
-> Sobre o E14: rode com `cargo test -- --ignored`. Se a memória crescer com o tamanho do arquivo, você quebrou a restrição de streaming (§3.3) — é o teste que pega o `read_to_string`.
+### 7.2 Integração
 
-### 9.5 Propriedade (opcional, mas recomendado)
+Entradas fornecidas em memória, sem arquivos e sem executar o programa.
 
-`[dev-dependencies] proptest = "1"`.
+| ID | Caso | Esperado |
+|---|---|---|
+| I01 | Conteúdo de `sample.log` | os números de §6.2 |
+| I02 | Filtro de nível WARN | só WARN e ERROR contam |
+| I03 | Filtro de módulo `db` | só `db` conta |
+| I04 | `--since` igual a um timestamp existente | linha **incluída** |
+| I05 | `--until` igual a um timestamp existente | linha **excluída** |
+| I06 | `--since` + `--until` + `--level` combinados | só a interseção dos três |
+| I07 | Só linhas inválidas | `lines_valid` 0, `lines_invalid` = n |
+| I08 | Entrada vazia (0 bytes) | tudo zerado |
+| I09 | Última linha sem terminador | processada |
+| I10 | CRLF em todas as linhas | mesmo resultado que com LF |
+| I11 | Bytes UTF-8 inválidos no meio | aquela linha `invalid_utf8` **e as seguintes processadas** |
+| I12 | Timestamps fora de ordem cronológica | resultado não muda |
+| I13 | Mesmo módulo em 2 níveis diferentes | contagens independentes |
+
+### 7.3 Ponta a ponta
+
+| ID | Caso | Esperado |
+|---|---|---|
+| E01 | `sample.log` | stdout = §6.2, stderr = §6.2, código 0 |
+| E02 | `--format json` com `sample.log` | stdout = §6.3, código 0 |
+| E03 | Arquivo inexistente | código 2, stderr não vazio, **stdout vazio** |
+| E04 | Caminho é um diretório | código 2, **stdout vazio** |
+| E05 | `--frobnicate` | código 1, stderr não vazio, **stdout vazio** |
+| E06 | `--help` | código 0, stdout contém `Usage` |
+| E07 | `-V` | código 0, stdout contém a versão do pacote |
+| E08 | `-` com o conteúdo de `sample.log` no stdin | mesmo que E01, exceto `file: -` |
+| E09 | `all_invalid.log` | código **3**, relatório impresso no stdout |
+| E10 | `empty.log` | código **0**, tudo zerado, `  (none)` e `  (no samples)` |
+| E11 | `--max-invalid-report 2` com `all_invalid.log` | exatamente 2 linhas `warning: line …` + 1 linha de resumo |
+| E12 | `--max-invalid-report 0` com `all_invalid.log` | só a linha de resumo |
+| E13 | `lo g ção.log` (espaço e acento no caminho) | funciona, `file:` com o caminho exato |
+| E14 | **Não funcional** — 200.000 linhas geradas em diretório temporário | < 3 s; pico de memória praticamente igual ao de 2.000.000 linhas |
+| E15 | `--module payments` com `sample.log` (nenhuma linha desse módulo) | código **0** (não 3), `lines_valid: 0`, os 3 avisos de §6.2 |
+
+O E14 fica fora da execução padrão da suíte e roda sob demanda. A medição de
+memória pode ser manual, desde que o resultado venha no pacote de entrega.
+
+### 7.4 Propriedade (opcional, recomendado)
 
 | ID | Propriedade |
 |---|---|
-| P01 | `parse_line` nunca entra em panic, para **qualquer** `String` arbitrária |
-| P02 | Round-trip: gerar `LogEntry` → serializar → `parse_line` → igual ao original |
-| P03 | `percentile(100, xs) == max(xs)` para qualquer `xs` não vazio |
-| P04 | `min(xs) <= mean(xs) <= max(xs)` |
+| P01 | Para **qualquer** texto como linha, a validação sempre termina com uma classificação — válida, inválida com motivo de §3.2, ou em branco. Nunca trava. |
+| P02 | Um registro válido gerado aleatoriamente e escrito conforme §3.1 é aceito, com os mesmos timestamp, nível, módulo e campos. |
+| P03 | Para qualquer conjunto não vazio de durações: p50 ≤ p90 ≤ p95 ≤ max, e cada percentil é um dos valores da amostra. |
+| P04 | Para qualquer conjunto não vazio de durações: menor valor ≤ mean ≤ max. |
 
-### 9.6 Qualidade
+### 7.5 Portões de qualidade
 
-| ID | Gate |
+| ID | Portão |
 |---|---|
-| Q01 | `cargo fmt --check` |
-| Q02 | `cargo clippy --all-targets -- -D warnings` |
-| Q03 | `cargo test` (unit + integração + e2e) |
-| Q04 | `cargo test --doc` |
-| Q05 | `cargo llvm-cov` ≥ 85% de linhas em `parser.rs` e `stats.rs` |
-| Q06 | `grep -rn "unwrap()\|expect(" src/` retorna 0 ocorrências |
+| Q01 | Código na formatação padrão da linguagem, sem divergências |
+| Q02 | Linter oficial da linguagem sem nenhum aviso, incluindo o código de teste |
+| Q03 | Suíte completa verde (unitários, integração, ponta a ponta) |
+| Q04 | Cobertura de linhas ≥ 85% no código das regras de validação (§3) e de estatística (§5.1) |
+| Q05 | Todos os ataques de §8 executados sem encerramento abrupto (RNF4) |
 
 ---
 
-## 10. Armadilhas que o QA vai testar de propósito
+## 8. Onde o QA vai atacar
 
-Não são pegadinhas gratuitas — são exatamente os erros que todo dev experiente comete na primeira semana de Rust:
+Não são pegadinhas gratuitas: são os defeitos que mais aparecem em ferramentas
+desse tipo. O QA vai além dos casos de §7 nesses pontos.
 
-1. **Slicing por índice em string UTF-8** (`&s[0..20]`) entra em panic no meio de um char multibyte. U19 pega isso. Use `char_indices`, `split_whitespace`, `strip_prefix`, ou valide `is_char_boundary`.
-2. **`lines()` remove `\n` mas não `\r`.** U18 e I10 pegam. Você está no Windows — isso vai te morder.
-3. **`split(' ')` vs `split_whitespace()`** com espaços múltiplos. U06 pega.
-4. **`unwrap()` no parse de número.** U15 pega (overflow).
-5. **`read_to_string`.** E14 pega.
-6. **Ordem de iteração de `HashMap` é não determinística.** Se você renderizar direto do HashMap, U54/E01 vão ficar intermitentes. Ordene antes de renderizar (ou use `BTreeMap` onde a ordem importa).
-7. **Formatação de float.** `{:.1}` em Rust usa round-half-to-even em alguns casos de borda; confira U33.
-8. **Lifetimes no parser.** `LogEntry<'a>` emprestando da linha é o desenho certo, mas obriga a agregar dentro do loop. Se você começar a clonar `String` em tudo para fugir do borrow checker, o código compila — e você não aprendeu nada. Quando eu revisar, vou perguntar onde você clonou e por quê.
-
----
-
-## 11. Definition of Done
-
-- [ ] Todos os testes de §9.1–§9.4 escritos e verdes
-- [ ] Q01–Q06 passando
-- [ ] `README.md` com: exemplo de uso, gramática do log, tabela de exit codes
-- [ ] `cargo run -- tests/fixtures/sample.log` reproduz §7.2 exatamente
-- [ ] Nenhuma dependência em `[dependencies]`
-- [ ] Você consegue explicar, sem consultar nada: por que `LogEntry` tem lifetime, e o que aconteceria se você trocasse `&'a str` por `String`
+1. **Caracteres multibyte em qualquer posição** — inclusive onde o produto espera
+   um tamanho fixo, como o timestamp. (U19, P01)
+2. **Arquivos gerados no Windows** (CRLF), inclusive com linhas em branco. (U18, I10)
+3. **Espaçamento irregular** entre os elementos. (U06)
+4. **Números fora da faixa** em `duration_ms`. (U15)
+5. **Arquivos grandes e entrada contínua via pipe.** (E14, E08)
+6. **Determinismo:** a mesma execução repetida várias vezes precisa dar a mesma saída. (U54, E01)
+7. **Arredondamento na borda** da média. (U33)
+8. **Caminhos com espaço e acento.** (E13)
+9. **stdout poluído em erro:** nada pode sair no stdout antes de um erro de uso ou de leitura. (E03, E05)
+10. **Lixo no meio do arquivo** não pode derrubar o resto do processamento. (I11)
 
 ---
 
-## 12. Extensões (só depois da v1 entregue)
+## 9. Definition of Done da v1
 
-| # | Extensão | O que ensina |
-|---|---|---|
-| X1 | Trocar o parser de args manual por `clap` (derive) | macros derive, ergonomia de crates |
-| X2 | Trocar `render_json` por `serde` + `serde_json` | traits derive, serialização |
-| X3 | Adicionar `--follow` (tail -f) | `std::thread`, channels, sinais |
-| X4 | Paralelizar com `rayon` e medir o ganho | paralelismo de dados, `Send`/`Sync` |
-| X5 | `cargo-fuzz` no parser | fuzzing |
-
-X3 e X4 podem virar o Projeto 02 se você quiser continuidade em vez de projeto novo.
+- [ ] Todos os casos U, I e E de §7 automatizados e verdes
+- [ ] Q01–Q05 atendidos
+- [ ] E14 executado e resultado registrado
+- [ ] §6.2 e §6.3 reproduzidos exatamente, com os três canais
+- [ ] Nenhuma dependência de terceiros no produto (RNF1)
+- [ ] Documentação de uso para o usuário final: exemplos, formato do log, códigos de saída
+- [ ] Aceite do QA (§11)
 
 ---
 
-## 13. Como vamos revisar
+## 10. Roadmap do produto após a v1
 
-Quando terminar, me manda:
+Nada disto entra na v1. São candidatos ao Projeto 02.
 
-1. A árvore de arquivos (`tree src tests`)
-2. O `Cargo.toml`
-3. Conteúdo de `parser.rs` e `stats.rs`
-4. Saída de `cargo test` e `cargo clippy --all-targets -- -D warnings`
+| Ideia | Valor para o usuário |
+|---|---|
+| Modo acompanhamento (`--follow`) | Relatório atualizado enquanto o arquivo cresce, durante o incidente |
+| Alto volume | 10 milhões de linhas em poucos segundos em máquinas com vários núcleos |
+| Campanha de robustez | QA gera milhões de linhas malformadas contra a validação de linha |
 
-Eu vou: conferir §7.2 byte a byte, procurar `unwrap`/`clone` desnecessários, e propor 2–3 casos de teste adversariais que você não escreveu. Aí seguimos para o Projeto 02.
+---
+
+## 11. Fluxo de entrega e aceite
+
+A cada entrega:
+
+1. **Dev** fecha a *Definition of Done* da entrega.
+2. **Dev** envia o **pacote de entrega**:
+   - resultado completo da suíte de testes;
+   - resultado dos portões de qualidade que valem na entrega;
+   - evidência dos critérios de aceite: stdout, stderr e código de saída dos comandos listados;
+   - limitações conhecidas, se houver.
+3. **QA** executa os critérios de aceite por conta própria, roda casos
+   adversariais extras e devolve **aprovado** ou uma lista de **bugs** (passos
+   para reproduzir, esperado × obtido, severidade).
+4. Com a aprovação, **Produto** libera a próxima entrega.
+
+Revisão de código não faz parte do aceite de Produto e QA. Para feedback sobre
+o código, peça ao tutor no chat.

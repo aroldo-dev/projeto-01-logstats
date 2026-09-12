@@ -1,0 +1,9 @@
+# Massa de teste do QA: precisa chegar byte a byte.
+#
+# `-text` desliga qualquer conversão de fim de linha pelo git — essencial no
+# Windows com core.autocrlf=true.
+#   tests/fixtures/ -> crlf.log precisa manter CRLF, senão o I10 passa sem testar nada
+#   expected/       -> saídas esperadas precisam manter LF, senão a comparação byte a byte falha
+
+tests/fixtures/** -text
+expected/**       -text
